@@ -10,3 +10,8 @@ configuration repository and may issue additional licensing grants separately.
 MiMoCode itself is a separate upstream project from XiaomiMiMo/MiMo-Code.
 This repository does not vendor Xiaomi MiMoCode source code, binaries,
 logos, QR codes, or trademarks.
+
+CI source and behavior commands are exposed through Just and the shared job
+lifecycle. Existing adapter/runtime versions and platform test selections are
+retained. The doctor unit fixture uses a fake executable; external audit/result
+publication is disabled while native source/security checks remain.

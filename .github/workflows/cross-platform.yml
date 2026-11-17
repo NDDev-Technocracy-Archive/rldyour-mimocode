@@ -1,18 +1,18 @@
 name: cross-platform
 
 on:
-  pull_request:
   push:
     branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: cross-platform-${{ github.event.pull_request.number || github.ref }}
-  # Obsolete pull-request heads are cancelled; a running main validation always completes.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: cross-platform-${{ github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   smoke:
@@ -22,28 +22,49 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-        - ubuntu-24.04
-        - macos-26
-        - windows-2025
+        os: [ubuntu-24.04, macos-26, windows-2025]
+    defaults:
+      run:
+        shell: bash
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        persist-credentials: false
-    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-      with:
-        python-version: '3.13'
-    - name: Run smoke command
-      shell: bash
-      env:
-        SMOKE_COMMAND: python3 -m pip install --user "pytest==9.1.1" && scripts/validate_fast.sh
-        WINDOWS_COMMAND: python3 -m pip install --user "pytest==9.1.1" && scripts/validate_fast.sh --skip-tests && python3 -m pytest -q tests/test_mimocode_config.py tests/test_mimocode_memory_boundary.py
-          tests/test_mimocode_projection.py tests/test_release_assets.py
-      run: |
-        set -euo pipefail
-        case "$RUNNER_OS" in
-          Linux) selected="${LINUX_COMMAND:-$SMOKE_COMMAND}" ;;
-          macOS) selected="${MACOS_COMMAND:-$SMOKE_COMMAND}" ;;
-          Windows) selected="${WINDOWS_COMMAND:-$SMOKE_COMMAND}" ;;
-        esac
-        bash -euo pipefail -c "$selected"
+      - name: Checkout for the existing Python selection
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Select the existing Python compatibility line
+        id: python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version-file: .github/.python-version
+      - name: Prepare the public CI job
+        id: setup
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@2a111c167e685fe37ef643b37abfdd42702d18cc # v0.6.70
+        with:
+          managed: 'false'
+          fetch-depth: 1
+          python-version: ${{ steps.python.outputs.python-version }}
+      - name: Install the unchanged test dependency
+        id: dependencies
+        run: just setup
+      - name: Check all fourteen source contracts
+        id: source
+        run: just check-source
+      - name: Run the full existing Linux and macOS suite
+        id: project
+        if: runner.os != 'Windows'
+        run: just test
+      - name: Run the existing selected Windows suite
+        id: windows
+        if: runner.os == 'Windows'
+        run: just test-windows
+      - name: Complete the public CI job
+        if: always()
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@2a111c167e685fe37ef643b37abfdd42702d18cc # v0.6.70
+        with:
+          status: ${{ job.status }}
+          project-outcome: ${{ steps.setup.outcome == 'success' && contains(steps.*.outcome, 'failure') && 'failure' || runner.os == 'Windows' && steps.windows.outcome || steps.project.outcome }}
+          task: cross-${{ matrix.os }}
+          name: cross-${{ matrix.os }}
+          read-token: ${{ steps.setup.outputs.read-token }}
+          reports: pytest.xml

@@ -172,11 +172,23 @@ No OAuth token, API key, auth file, provider credential, `MIMOCODE_AUTH_CONTENT`
 
 ## Validation
 
-Fast static validation:
+Source-only validation is offline and executes no installed provider:
 
 ```bash
-bash scripts/validate_fast.sh
+just check
 ```
+
+Prepare the declared Python test runtime, then run the behavior suite:
+
+```bash
+just setup
+just test
+just verify
+```
+
+The existing fast-validator entrypoint still runs its fourteen contracts and
+pytest. The doctor behavior fixture uses a local fake executable. It does not
+qualify an installed MiMoCode, MCP endpoint, browser or model.
 
 Adapter-deep validation:
 

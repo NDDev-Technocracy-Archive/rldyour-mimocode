@@ -5,13 +5,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.run_id }}
+  group: dependency-check-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -20,12 +21,32 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Checkout for the existing Python selection
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
-      - name: Check dependency policy
-        run: |
-          set -euo pipefail
-          python3 scripts/validate_mimocode_runtime_baseline.py --strict
-          python3 scripts/validate_mimocode_mcp_inventory.py --strict
+          fetch-depth: 1
+      - name: Select the existing Python compatibility line
+        id: python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: .github/.python-version
+      - name: Prepare the public CI job
+        id: setup
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@2a111c167e685fe37ef643b37abfdd42702d18cc # v0.6.70
+        with:
+          managed: 'false'
+          fetch-depth: 1
+          python-version: ${{ steps.python.outputs.python-version }}
+      - name: Check the existing runtime and MCP dependency policy
+        id: project
+        run: just check-dependencies
+      - name: Complete the public CI job
+        if: always()
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@2a111c167e685fe37ef643b37abfdd42702d18cc # v0.6.70
+        with:
+          status: ${{ job.status }}
+          project-outcome: ${{ steps.setup.outcome == 'success' && contains(steps.*.outcome, 'failure') && 'failure' || steps.project.outcome }}
+          task: dependency-policy
+          name: dependency-policy
+          read-token: ${{ steps.setup.outputs.read-token }}
