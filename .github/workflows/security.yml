@@ -10,9 +10,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: security-${{ github.event.pull_request.number || github.ref }}
-  # Obsolete pull-request heads are cancelled; a running main validation always completes.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: security-${{ github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   codeql:
@@ -26,16 +25,29 @@ jobs:
       matrix:
         language: [python, actions]
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare the public CI job
+        id: setup
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@2a111c167e685fe37ef643b37abfdd42702d18cc # v0.6.70
         with:
-          persist-credentials: false
+          managed: 'false'
+          fetch-depth: 1
       - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ contains(fromJSON('["go","java-kotlin","csharp","cpp","swift"]'), matrix.language) && 'autobuild' || 'none' }}
       - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        id: project
         with:
           category: /language:${{ matrix.language }}
+      - name: Complete the public CI job
+        if: always()
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@2a111c167e685fe37ef643b37abfdd42702d18cc # v0.6.70
+        with:
+          status: ${{ job.status }}
+          project-outcome: ${{ steps.setup.outcome == 'success' && contains(steps.*.outcome, 'failure') && 'failure' || steps.project.outcome }}
+          task: security-codeql
+          name: security-codeql
+          read-token: ${{ steps.setup.outputs.read-token }}
 
   scorecard:
     if: ${{ github.event_name != 'pull_request' }}
@@ -46,22 +58,51 @@ jobs:
       security-events: write
       id-token: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare the public CI job
+        id: setup
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@2a111c167e685fe37ef643b37abfdd42702d18cc # v0.6.70
         with:
-          persist-credentials: false
+          managed: 'false'
+          fetch-depth: 1
       - uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
         with:
           results_file: results.sarif
           results_format: sarif
-          publish_results: true
+          publish_results: false
       - uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        id: project
         with:
           sarif_file: results.sarif
           category: scorecard
+      - name: Complete the public CI job
+        if: always()
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@2a111c167e685fe37ef643b37abfdd42702d18cc # v0.6.70
+        with:
+          status: ${{ job.status }}
+          project-outcome: ${{ steps.setup.outcome == 'success' && contains(steps.*.outcome, 'failure') && 'failure' || steps.project.outcome }}
+          task: security-scorecard
+          name: security-scorecard
+          read-token: ${{ steps.setup.outputs.read-token }}
 
   dependency-review:
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      - name: Prepare the public CI job
+        id: setup
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@2a111c167e685fe37ef643b37abfdd42702d18cc # v0.6.70
+        with:
+          managed: 'false'
+          fetch-depth: 1
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        id: project
+      - name: Complete the public CI job
+        if: always()
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@2a111c167e685fe37ef643b37abfdd42702d18cc # v0.6.70
+        with:
+          status: ${{ job.status }}
+          project-outcome: ${{ steps.setup.outcome == 'success' && contains(steps.*.outcome, 'failure') && 'failure' || steps.project.outcome }}
+          task: security-dependency-review
+          name: security-dependency-review
+          read-token: ${{ steps.setup.outputs.read-token }}

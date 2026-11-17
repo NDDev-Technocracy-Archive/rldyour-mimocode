@@ -5,13 +5,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.run_id }}
+  group: validate-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -20,42 +21,61 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Checkout for the existing Python selection
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+          fetch-depth: 1
+      - name: Select the existing Python compatibility line
+        id: python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
-          python-version: "3.13"
-      - name: Install validation dependencies
-        run: python3 -m pip install --user "pytest==9.1.1"
-      - name: Validate MiMoCode adapter
-        run: scripts/validate_fast.sh
+          python-version-file: .github/.python-version
+      - name: Prepare the public CI job
+        id: setup
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@2a111c167e685fe37ef643b37abfdd42702d18cc # v0.6.70
+        with:
+          managed: 'false'
+          fetch-depth: 1
+          python-version: ${{ steps.python.outputs.python-version }}
+      - name: Install the unchanged test dependency
+        id: dependencies
+        run: just setup
+      - name: Validate every existing adapter contract and behavior fixture
+        id: project
+        run: just validate
+      - name: Complete the public CI job
+        if: always()
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@2a111c167e685fe37ef643b37abfdd42702d18cc # v0.6.70
+        with:
+          status: ${{ job.status }}
+          project-outcome: ${{ steps.setup.outcome == 'success' && contains(steps.*.outcome, 'failure') && 'failure' || steps.project.outcome }}
+          task: validate
+          name: validate
+          read-token: ${{ steps.setup.outputs.read-token }}
+          reports: pytest.xml
 
   workflows:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare the public CI job
+        id: setup
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@2a111c167e685fe37ef643b37abfdd42702d18cc # v0.6.70
         with:
-          persist-credentials: false
+          managed: 'false'
           fetch-depth: 0
-      - uses: NDDev-Technocracy-Standarts/std-0004-ci-cd-workflows/.github/actions/tools@c192c6adcf22088abf456635de614d42e8fa3f8d # nddev-cicd-v0.6.20
+          tools: zizmor@1.32.0,shellcheck@0.11.0
+          tool-assets: .github/ci-tools.json
+      - name: Check workflows, shell and complete Git history
+        id: project
+        run: just check-ci
+      - name: Complete the public CI job
+        if: always()
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@2a111c167e685fe37ef643b37abfdd42702d18cc # v0.6.70
         with:
-          capability: security
-      - name: Lint and audit workflows
-        run: |
-          actionlint
-          zizmor --offline --no-progress .github/workflows/validate.yml .github/workflows/cross-platform.yml .github/workflows/dependency-check.yml .github/workflows/pytest.yml .github/workflows/security.yml .github/dependabot.yml
-      - name: Scan new pull request commits, or the full history on main
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          if [ -n "$BASE" ]; then
-            gitleaks git --no-banner --redact --log-opts="$BASE..$HEAD" .
-          else
-            gitleaks git --no-banner --redact .
-          fi
-
+          status: ${{ job.status }}
+          project-outcome: ${{ steps.setup.outcome == 'success' && contains(steps.*.outcome, 'failure') && 'failure' || steps.project.outcome }}
+          task: workflows
+          name: workflows
+          read-token: ${{ steps.setup.outputs.read-token }}

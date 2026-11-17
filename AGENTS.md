@@ -34,13 +34,9 @@ Do not introduce Claude/Antigravity/Codex native config formats as runtime contr
 ## Validation Commands
 
 ```bash
-scripts/validate_fast.sh
-python3 scripts/validate_mimocode_runtime_baseline.py
-python3 scripts/validate_mimocode_config.py
-python3 scripts/validate_mimocode_memory_boundary.py
-python3 scripts/validate_mimocode_projection_parity.py
-python3 scripts/validate_mimocode_browser_provider_policy.py --strict
-python3 scripts/validate_release_assets.py
+just check
+just test
+just verify
 ```
 
 ## Browser Boundary
@@ -65,12 +61,11 @@ Every workflow run is evidence and must finish. Use a concurrency group unique
 to `github.run_id` and `cancel-in-progress: false`; never discard a queued or
 running check as superseded.
 
-This repository is public, so `pull_request` executes untrusted fork code.
-Every caller of a `NDDev-OpenNetwork/ci-workflows` reusable that exposes a `runner`
-input passes `runner: ubuntu-latest` explicitly, and must keep it. Several of
-those reusables may default `runner` to the retired `amsterdam` label, and
-that default is a property of the **pinned commit**, not of this
-repository - so dropping the explicit value would let a routine pin bump route
-fork PRs onto trusted private infrastructure with no diff here to review. On
-any ci-workflows pin bump, diff `inputs.runner.default` between the old and
-new commit before merging.
+A reusable workflow retains its own concurrency settings; an outer caller group
+does not override them. A shared caller change must preserve the complete
+run-id-unique/no-cancel contract. Fork jobs use public hosted workers only.
+
+The shared job lifecycle prepares the environment and records the result; Just
+owns the project commands. Tests put a fake `mimo` first on their child PATH and
+clear shell startup injection. Installed-runtime doctor and browser/MCP/model
+qualification remain separate operator actions.
